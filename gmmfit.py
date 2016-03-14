@@ -1,79 +1,131 @@
 # d-dimensional Gaussian mixture model
 import numpy as np
+import scipy.stats as stats
 import sys
+import time
 import matplotlib.pyplot as plt
+
 
 def eps():
     return 10**-32
 
+
+def covariance(X):
+    try:
+        (n,d) = X.shape
+    except:
+        n = X.shape[0]
+        d = 1
+
+    S = np.zeros((1,d,d))
+    for iD1 in range(d):
+        for iD2 in range(d):
+            x1 = X[:,iD1]
+            x2 = X[:,iD2]
+            idInf = np.logical_or(np.isinf(x1),np.isinf(x2))
+            idNaN = np.logical_or(np.isnan(x1),np.isnan(x2))
+            idInvalid = np.logical_or(idInf,idNaN)
+            idValid = np.logical_not(idInvalid)
+            x1 = x1[idValid]
+            x2 = x2[idValid]
+            x1 = x1.reshape(x1.size,1)
+            x2 = x2.reshape(x2.size,1)
+            x0 = np.concatenate((x1,x2),axis=1)
+            c = np.cov(x0,rowvar=False)
+            S[0,iD1,iD2] = c[0,1]
+    return S
 
 def gauss(x, mu, sigma):
     try:
         d = len(x)
     except:
         d = 1
-    x = x.reshape((1,d))
-    mu = mu.reshape((1,d))
-    sigma = sigma.reshape((d,d))
-    pi = np.pi
-    prec = np.linalg.inv(sigma)
-    d = x - mu
-    part1 = 1 / ( ((2* pi)**(len(mu)/2)) * (np.linalg.det(sigma)**(1/2)) )
-    part2 = (-1/2) * ((x-mu).T.dot(prec)).dot((x-mu))
 
+    pi = np.pi
+
+    if d>1:
+        x = np.array(x)
+        mu = np.array(mu)
+        sigma = np.array(sigma)
+    else:
+        x = np.array([x])
+        mu = np.array([mu])
+        sigma = np.array([sigma])
+
+    x = x.reshape(d,1)
+    mu = mu.reshape(d,1)
+    sigma = sigma.reshape(d,d)
+
+    if d>1:
+        prec = np.linalg.inv(sigma+eps())
+    else:
+        prec = 1/(sigma+eps())
+
+    dev = x - mu
+
+    covDet = np.linalg.det(sigma)
+
+    denom = ( ((2* pi)**(d/2)) * (covDet**(1/2)) )
+
+    part1 = 1 / denom
+    part2 = (-1/2) * (dev.T.dot(prec).dot(dev))
     p = part1 * np.exp(part2)
+
+    #mvn = stats.multivariate_normal(mean=mu,cov=sigma)
+    #p = mvn.pdf(x)
 
     return float(p)
 
 
-def posteriors(self, X):
+def posteriors(gmobj, X):
     try:
         (n,d) = X.shape
     except:
         n = X.shape[0]
         d = 1
-    self.N = n
-    k = self.ncomponents
+    gmobj.N = n
+    k = gmobj.getKcomponents()
     p = np.ones((n, k)) * np.nan
-    t = p
+    t = np.ones((n, k)) * np.nan
 
     X = X.reshape((n,d))
-    self.Mu = self.Mu.reshape((k,d))
-    self.Sigma = self.Sigma.reshape((k,d,d))
-    self.tau = self.tau.reshape((k,1))
+    Mu = (gmobj.getMu()).reshape((k,d))
+    Sigma = (gmobj.getSigma()).reshape((k,d,d))
+    Tau = (gmobj.getTau()).reshape((k,1))
 
     for iN in range(n):
         for iK in range(k):
             x = np.ones((d,1))*np.nan
             mu = np.ones((d,1))*np.nan
             sigma = np.ones((d,d))*np.nan
-            tau = self.tau[iK]
+            tau = Tau[iK]
             for iD in range(d):
                 x[iD] = X[iN,iD]
-                mu[iD] = self.Mu[iK,iD]
+                mu[iD] = Mu[iK,iD]
                 for iD2 in range(d):
-                    sigma[iD,iD2] = self.Sigma[iK, iD, iD2]
+                    sigma[iD,iD2] = Sigma[iK, iD, iD2]
             p0 = gauss(x, mu, sigma)
             p[iN, iK] = p0 * tau
 
     return p
 
 
-def weights(self):
-    X = self.X
-    p = posteriors(self,X)
-    self.post = p
+def weights(gmobj):
+    X = gmobj.X
+    p = posteriors(gmobj,X)
+    gmobj.post = p
     t = np.nansum(p, axis = 1)
     t = t.reshape((t.size,1))
-    self.weight = p / t
-    return self
+    weight = p / t
+    return weight
 
 
-def loglikelihood(self, X):
-    tau = self.tau
-    p = posteriors(self, X)
-    n = self.N
-    k = self.ncomponents
+def loglikelihood(gmobj, X):
+    tau = gmobj.getTau()
+    p = posteriors(gmobj, X)
+    n = gmobj.getN()
+    k = gmobj.getKcomponents()
+
     wp = np.ones((n,k))*np.nan
     for iN in range(n):
         for iK in range(k):
@@ -87,19 +139,19 @@ def loglikelihood(self, X):
 
 
 def expectation(self):
-    self = weights(self)
+    self.weight = weights(self)
 
     return self
 
 
-def maximization(self):
-    Nk = np.nansum(self.weight,axis=0)
+def maximization(gmobj):
+    w = gmobj.weight
+    Nk = np.nansum(w,axis=0)
     tau = Nk / np.nansum(Nk)
-    n = self.N
-    k = self.ncomponents
-    d = self.ndimensions
-    X = self.X
-    w = self.weight
+    n = gmobj.getN()
+    k = gmobj.getKcomponents()
+    d = gmobj.getDdimensions()
+    X = gmobj.getData()
 
     X = X.reshape(n,d)
     w = w.reshape(n,k)
@@ -117,7 +169,10 @@ def maximization(self):
 
         D = X - mu[iK,:]
         reg = 1 / float(Nk[iK]+eps())
-        wd = np.array([np.dot(D[iN,:],D[iN,:].T)*w[iN,iK] for iN in range(n)])
+        wd = np.ones((n,d,d))*np.nan
+        for iN in range(n):
+            for iD in range(d):
+                wd[iN,iD,:] = D[iN,iD]*D[iN,:]*w[iN,iK]
         s = np.nansum(wd,axis=0)
         sigma[iK, :, :] = reg * s
 
@@ -126,31 +181,31 @@ def maximization(self):
     sigma = sigma[I,:,:]
     tau = tau[I]
 
-    self.Mu = mu
-    self.Sigma = sigma
-    self.tau = tau
+    gmobj.setMu(mu)
+    gmobj.setSigma(sigma)
+    gmobj.setTau(tau)
 
-    return self
-
-
-def evaluation(self):
-    X = self.X
-    LnL = self.loglikelihood()
-    self.LnL = LnL
-    return self
+    return gmobj
 
 
-def EM(self):
-    self=expectation(self)
-    self=maximization(self)
-    self=evaluation(self)
+def evaluation(gmobj):
+    X = gmobj.getData()
+    LnL = gmobj.loglikelihood()
+    gmobj.LnL = LnL
+    return gmobj
 
-    return self
 
-def information(self):
-    k = self.ncomponents
-    N = self.N
-    LnL = loglikelihood(self,self.X)
+def EM(gmobj):
+    gmobj=expectation(gmobj)
+    gmobj=maximization(gmobj)
+    gmobj=evaluation(gmobj)
+
+    return gmobj
+
+def information(gmobj):
+    k = gmobj.getKcomponents()
+    N = gmobj.getN()
+    LnL = loglikelihood(gmobj,gmobj.getData())
     LnN = np.log(N)
     AIC = 2*k - 2*LnL
     BIC = -2*LnL + k*LnN
@@ -158,31 +213,15 @@ def information(self):
 
 
 def nullModel(self):
-    n = self.N
-    d = self.ndimensions
-    k = self.ncomponents
+    n = self.getN()
+    d = self.getDdimensions()
+    k = self.getKcomponents()
 
-    X = self.X
+    X = self.getData()
     M = np.nanmean(self.X,axis=0)
     M = M.reshape((1,d))
-    S = np.zeros((1,d,d))
-    for iD1 in range(d):
-        for iD2 in range(d):
-            x1 = X[:,iD1]
-            x2 = X[:,iD2]
-            idInf = np.logical_or(np.isinf(x1),np.isinf(x2))
-            idNaN = np.logical_or(np.isnan(x1),np.isnan(x2))
-            idInvalid = np.logical_or(idInf,idNaN)
-            idValid = np.logical_not(idInvalid)
-            x1 = x1[idValid]
-            x2 = x2[idValid]
-            x1 = x1.reshape(x1.size,1)
-            x2 = x2.reshape(x2.size,1)
-            x0 = np.concatenate((x1,x2),axis=1)
-            c = np.cov(x0,rowvar=False)
-            S[0,iD1,iD2] = c[1,1]
-
-    null = gmobj(d=self.ndimensions,k=1,mu=M,sigma=S,tau=np.ones((1,d)))
+    S = covariance(X)
+    null = GMobj(d=self.ndimensions,k=1,mu=M,sigma=S,tau=1)
     null.setData(X)
     null.setInformation()
 
@@ -190,51 +229,81 @@ def nullModel(self):
 
 
 def seed(self):
-    X = self.X
-    n = self.N
-    d = self.ndimensions
-    k = self.ncomponents
+    X = self.getData()
+    n = self.getN()
+    d = self.getDdimensions()
+    k = self.getKcomponents()
 
     null = nullModel(self)
-    mu = null.Mu
-    sigma = null.Sigma
-    tau = null.tau
+
+    sigma = null.getSigma()
 
     xmax = np.nanmax(X, axis = 0)
     xmin = np.nanmin(X, axis = 0)
     muStart = np.random.random((k, d))
-    sigmaStart = np.random.random((k, d, d)) * 2 - 1
+    # sigmaStart = np.random.random((k, d, d)) * 2 - 1
 
+    sigmaStart = np.zeros((k,d,d))
     for iK in range(k):
-        muStart[iK, :] = muStart[iK,:] * (xmax - xmin) + xmin
-        sigmaStart[iK,:,:] = (sigmaStart[iK,:,:]+sigma[0,:,:])**2
-        for iD1 in range(d-1):
-            for iD2 in range(iD1+1,d):
-                s = (sigmaStart[iK,iD1,iD2]+sigmaStart[iK,iD2,iD1])/2
-                sigmaStart[iK,iD1,iD2] = s
-                sigmaStart[iK,iD2,iD1] = s
+        sigmaStart[iK,:,:] = sigma[:,:]/k
 
     tauStart = np.random.random((k, 1))
     tauStart = tauStart / np.nansum(tauStart)
 
-    boot0 = gmobj(d = d, k = k, mu = muStart, sigma = sigmaStart, tau = tauStart)
-    boot0.X = X
-    boot0.N = n
-    boot0.post = np.ones((n, k), float) * np.nan
-    boot0.weight = np.ones((n, k), float) * np.nan
+    boot0 = GMobj(d = d, k = k, mu = muStart, sigma = sigmaStart, tau = tauStart)
+    boot0.setData(X)
+    boot0.setInformation()
+    boot0.setLnL()
     boot0.LnL = -np.inf
-    LnL0 = null.loglikelihood()
-    (AIC0,BIC0) = null.information()
-    boot0.LnL0 = LnL0
-    boot0.AIC0 = AIC0
-    boot0.BIC0 = BIC0
 
     return boot0
 
 
-class gmobj(object):
+class GMobj(object):
     """
-    Gaussian mixture object class
+    Gaussian mixture object class:
+
+    SET methods:
+    ************
+    gmobj.setKcomponents(k) sets the number of components in gaussian mixture gmobj to k.
+    gmobj.setDdimensions(d) sets the dimensionality of the gaussian mixture gmobj to d.
+    gmobj.setMu([[Mu_11,Mu_12,...,Mu_1d],...,[Mu_k1,Mu_k2,...,Mu_kd]]) sets the mean of each component along each dimension of gaussian mixture gmobj.
+    gmobj.setSigma([CovMat_1],...,[CovMat_k]) sets the dimension-by-dimension covariance matrix of each component of gaussian mixture gmobj.
+    gmobj.setTau([Tau_1],...,[Tau_k]) sets the mixing proportion of each component of gaussian mixture gmobj.
+    gmobj.setData(X) sets the data of gaussian mixture gmobj to the n x d matrix X.
+
+    GET methods:
+    ************
+    p = gmobj.posteriors(X) returns the posterior probability of X given gaussian mixture gmobj.
+    fitObj = gmobj.fit(X,k) returns a gaussian mixture fitObj fit by Expectation-Maximization to the data in X, assuming k components.
+
+    k = gmobj.getKcomponents() returns the number of components for gaussian mixture gmobj.
+    d = gmobj.getDdimensions() returns the dimensionality of the gaussian mixture gmobj.
+    Mu = gmobj.getMu() returns a k x d matrix of means of each component along each dimension of gaussian mixture gmobj.
+    Sigma = gmobj.getSigma() returns a k x d x d matrix of variance-covariance matrices for each component of gaussian mixture gmobj.
+    Tau = gmobj.getTau() returns a k x 1 vector of mixing proportions of each component of gaussian mixture gmobj.
+    X = gmobj.getData() returns a n x d matrix of data for gaussian mixture gmobj.
+    N = gmobj.getN() returns an int of the number of case observations in the data of gaussian mixture gmobj.
+    IterHist = gmobj.getIterHist() returns a list of LnL values calculated at each iteration step of the Expectation-Maximization algorithm used in the fit of gaussian mixture object gmobj.
+    LnL = gmobj.loglikelihood() returns the loglikelihood of data in gaussian mixture gmobj.
+    (AIC, BIC) = gmobj.getInformation() returns information criteria of gaussian mixture gmobj.
+    null = gmobj.nullModel() returns a null-model (single-component) gaussian mixture object of the data in gmobj.
+
+    DISPLAY methods:
+    ****************
+    gmList = gmobj.parseDistributions() returns a len-k list of dictionaries for each component with keys
+        'Mu', a 1xd vector of means for the component along each dimension
+        'Sigma', a d x d variance-covariance matrix for the component
+        'Tau', a float with the mixing proportion of the component
+
+    gmobj.plotIters() plots a figure of the LnL calculated at each iteration step vs. the iteration step
+    gmobj.plot() creates d plots of
+        the relative frequency polygons of the data along each dimension (thick black line), and
+        each of the k gaussian probability density functions (thin grey lines) along that dimension,
+        for the gaussian mixture gmobj.
+    gmobj.plot2d(dims=[0,1]) creates a single filled contour plot of the multivariate density of the mixture along specified dimensions, and a scatter of the observed data points in gaussian mixture gmobj.
+
+
     """
 
     def posteriors(self,X):
@@ -250,7 +319,7 @@ class gmobj(object):
             n = X.shape[0]
             d = 1
 
-        assert d==self.ndimensions, 'X must be n x '+str(self.ndimensions)+'-dimensional matrix.'
+        assert d==self.getDdimensions(), 'X must be n x '+str(self.getDdimensions())+'-dimensional matrix.'
 
         p = posteriors(self,X)
         return p
@@ -269,17 +338,15 @@ class gmobj(object):
         (AIC,BIC) = information(self)
         return (AIC,BIC)
 
-
     def loglikelihood(self):
         """
         Method to evaluate the log-likelihood of the current gmobj.
 
         :return: LnL
         """
-        X = self.X
+        X = self.getData()
         LnL = loglikelihood(self,X)
         return LnL
-
 
     def nullModel(self):
         """
@@ -290,6 +357,74 @@ class gmobj(object):
         null = nullModel(self)
         return null
 
+    def setLnL(self):
+        """
+        Method to set the LnL and null-model LnL0 attribute of the current gmobj.
+
+        :return:
+        """
+        self.LnL = self.loglikelihood()
+        k = self.getKcomponents()
+        if k==1:
+            self.LnL0 = self.loglikelihood()
+        else:
+            self.LnL0 = (self.nullModel()).loglikelihood()
+
+    def setInformation(self):
+        """
+        Method to set the information attributes AIC and BIC, and the null-model information attributes AIC0 and BIC0.
+
+        :return:
+        """
+        (self.AIC, self.BIC) = self.information()
+        k = self.getKcomponents()
+        if k==1:
+            (self.AIC0, self.BIC0) = self.information()
+        else:
+            (self.AIC0, self.BIC0) = (self.nullModel()).information()
+
+    def getInformation(self):
+        """
+        Method to return a tuple of information criteria.
+
+        :return:
+        (AIC, BIC)
+        """
+        return (self.AIC,self.BIC)
+
+    def setKcomponents(self,k):
+        """
+        Method to set the number of components in the gmobj
+
+        :param k: number of components
+        :return:
+        """
+        self.kcomponents = k
+
+    def getKcomponents(self):
+        """
+        Method to return the number of components in the gmobj
+
+        :return:
+        """
+        return self.kcomponents
+
+    def setDdimensions(self,d):
+        """
+        Method to set the number of dimensions in the gmobj
+
+        :param d: number of dimensions
+        :return:
+        """
+        self.ddimensions = d
+
+    def getDdimensions(self):
+        """
+        Method to return the number of dimensions in the gmobj
+
+        :return:
+        """
+        return self.ddimensions
 
     def setMu(self,Mu):
         """
@@ -302,8 +437,19 @@ class gmobj(object):
         except:
             k = Mu.shape[0]
             d = 1
-        self.ncomponents = k
-        self.Mu = mu
+        self.setKcomponents(k)
+        self.Mu = Mu
+
+    def getMu(self):
+        """
+        Method to return the mean of the gmobj
+
+        :return: k x d matrix of means
+        """
+        k = self.getKcomponents()
+        d = self.getDdimensions()
+        mu = self.Mu
+        return mu.reshape(k,d)
 
     def setSigma(self,Sigma):
         """
@@ -322,11 +468,19 @@ class gmobj(object):
                 d1 = 1
                 k = 1
         assert d1==d2, 'Sigma must be k x d x d'
+        d = d1
 
         Sigma = Sigma.reshape(k,d,d)
-        self.ncomponents = k
-        self.ndimensions = d
+        self.setKcomponents(k)
+        self.setDdimensions(d)
+
         self.Sigma = Sigma
+
+    def getSigma(self):
+        k = self.getKcomponents()
+        d = self.getDdimensions()
+        sigma = self.Sigma
+        return sigma.reshape(k,d,d)
 
     def setTau(self,tau):
         """
@@ -336,8 +490,18 @@ class gmobj(object):
         """
         tau = tau.reshape(tau.size,1)
         k = tau.shape[0]
-        self.ncomponents = k
-        self.tau = tau
+        self.setKcomponents(k)
+        self.Tau = tau/np.nansum(tau)
+
+
+    def getTau(self):
+        """
+        Method to return the mixing proportion attribute of the gmobj
+
+        :return:
+        """
+        tau = self.Tau
+        return tau/np.nansum(tau)
 
     def setData(self,X):
         """
@@ -351,24 +515,41 @@ class gmobj(object):
             n = X.shape[0]
             d = 1
 
-        k = self.ncomponents
-        self.N = n
-        self.ndimensions = d
         self.X = X
-        self.post = np.ones((n, k), float) * np.nan
-        self.weight = np.ones((n, k), float) * np.nan
+        self.N = n
+        self.setDdimensions(d)
 
+        k = self.getKcomponents()
+        if (np.isnan(self.getMu())).all():
+            mu = np.nanmean(X,axis=0)
+            Mu = np.ones((k,d))*np.nan
+            for iK in range(k):
+                Mu[iK,:] = mu
 
-    def setInformation(self):
+            self.setMu(Mu)
+
+        if (np.isnan(self.getSigma())).all():
+            sigma = covariance(X)
+            Sigma = np.ones((k,d,d))*np.nan
+            for iK in range(k):
+                Sigma[iK,:,:] = sigma
+
+            self.setSigma(Sigma)
+
+        if (np.isnan(self.getTau())).all():
+            tau = np.ones((k,1))*(1/k)
+            self.setTau(tau)
+
+        self.post = self.posteriors(X)
+        self.weight = weights(self)
+
+    def getData(self):
         """
-        Method to set the information attributes LnL, AIC, and BIC.
+        Method to return the data attribute for gmobj.
 
+        :return:
         """
-        (AIC,BIC) = self.information()
-        self.LnL = self.loglikelihood()
-        self.BIC = BIC
-        self.AIC = AIC
-
+        return self.X
 
     def setNullModel(self):
         """
@@ -383,7 +564,6 @@ class gmobj(object):
         self.AIC0 = AIC0
         self.BIC0 = BIC0
 
-
     def parseDistributions(self):
         """
         Parses gmobj into its component multivariate Gaussians.
@@ -393,13 +573,13 @@ class gmobj(object):
           'Sigma': Covariance matrix of component
           'Tau': Mixture proportion of component
         """
-        k = self.ncomponents
-        d = self.ndimensions
+        k = self.getKcomponents()
+        d = self.getDdimensions()
         GMDistributionList = list()
         for iK in range(k):
-            Mu = self.Mu[iK,:]
-            Sigma = (self.Sigma[iK,:,:]).reshape(d,d)
-            Tau = self.tau[iK]
+            Mu = self.getMu()[iK,:]
+            Sigma = (self.getSigma()[iK,:,:]).reshape(d,d)
+            Tau = self.getTau()[iK]
             GMDistribution = {'Mu':Mu,'Sigma':Sigma,'Tau':Tau}
             GMDistributionList.append(GMDistribution)
         return GMDistributionList
@@ -413,6 +593,8 @@ class gmobj(object):
         iterHist = self.IterHist
         return iterHist
 
+    def getN(self):
+        return self.N
 
     def plotIters(self):
         """
@@ -428,7 +610,7 @@ class gmobj(object):
         ph=plt.plot(history,iters)
         plt.xlabel('Iteration')
         plt.ylabel('Ln[L]')
-        ah.set_title('Iteration history')
+        plt.title('Iteration history')
 
         return (fh, ah, ph)
 
@@ -438,14 +620,14 @@ class gmobj(object):
 
         :return: List of (fh, ah, [ph]) handles.
         """
-        d = self.ndimensions
-        k = self.ncomponents
-        Mu = self.Mu
-        Sigma = self.Sigma
-        tau = self.tau
+        d = self.getDdimensions()
+        k = self.getKcomponents()
+        Mu = self.getMu()
+        Sigma = self.getSigma()
+        tau = self.getTau()
         try:
-            X = self.X
-            n = self.N
+            X = self.getData()
+            n = self.getN()
             X = X.reshape(n,d)
 
             xmin = np.nanmin(X,axis=0)
@@ -457,8 +639,8 @@ class gmobj(object):
             for iD in range(d):
                 s0 = Sigma[:,iD,iD]
                 s[iD] = np.sqrt(np.max(s0))
-            xmin = np.nanmin(Mu,axis=0)-s
-            xmax = np.nanmax(Mu,axis=0)+s
+            xmin = np.nanmin(Mu,axis=0)-3*s
+            xmax = np.nanmax(Mu,axis=0)+3*s
 
         X = X.reshape(n,d)
         cmap = np.linspace(0.2,0.8,k)
@@ -486,22 +668,32 @@ class gmobj(object):
 
         return out
 
-    def plot2d(self,dims):
+    def plot2d(self,dims=[0,1]):
         """
         Method to plot contour of 2 dimensions.
 
+        :param: dims=[0,1]: dimensions of data in gmobj for which to plot contour.
         :return: Tuple of figure handles
         """
         assert len(dims)==2, 'Only 2 dimensions can be plotted as a contour with this method.'
-        X = self.X
+        X = self.getData()
+
         xmin = np.nanmin(self.X[:,dims],axis=0)
         xmax = np.nanmax(self.X[:,dims],axis=0)
 
         xmean = np.nanmean(self.X,axis=0)
-        lx = linspace(xmin[dims[0]],xmax[dims[0]],100)
-        ly = linspace(xmin[dims[1]],xmax[dims[1]],100)
+        lx = np.linspace(xmin[dims[0]],xmax[dims[0]],100)
+        ly = np.linspace(xmin[dims[1]],xmax[dims[1]],100)
+        lx = lx.reshape(1,len(lx))
+        ly = ly.reshape(1,len(ly))
 
-        XY = np.ones((100,d))
+        XX = np.ones((100,100))
+        YY = np.ones((100,100))
+        for iX in range(100):
+            XX[iX,:] = lx
+        for iY in range(100):
+            YY[iY,:] = ly
+        YY = YY.T
 
         GMList = self.parseDistributions()
         k = len(GMList)
@@ -512,9 +704,10 @@ class gmobj(object):
                 p = 0
                 for ik in range(k):
                     x = xmean
-                    x[dims[0]] = lx[ix]
-                    x[dims[1]] = ly[ix]
-                    gms = GMlist[ik]
+                    x[dims[0]] = XX[iy,ix]
+                    x[dims[1]] = YY[iy,ix]
+
+                    gms = GMList[ik]
                     mu = gms['Mu']
                     sigma = gms['Sigma']
                     tau = gms['Tau']
@@ -523,10 +716,13 @@ class gmobj(object):
 
         fh=plt.figure()
         ah=fh.add_axes()
-        ph1=plt.imshow(z,vmin=0,vmax=np.nanmax(z))
+        ph1=plt.contourf(XX,YY,z,vmin=0)
         plt.xlabel('Col'+str(dims[0]))
         plt.ylabel('Col'+str(dims[1]))
         ph2=plt.scatter(X[:,dims[0]],X[:,dims[1]],marker='.')
+        plt.xlim(np.nanmin(XX),np.nanmax(XX))
+        plt.ylim(np.nanmin(YY),np.nanmax(YY))
+        plt.colorbar(mappable=ph1)
         return (fh,ah,(ph1,ph2))
 
 
@@ -546,18 +742,33 @@ class gmobj(object):
             gmobj.ncomponents = k
             gmobj.Mu = mu
             gmobj.Sigma = sigma
-            gmobj.tau = tau
+            gmobj.Tau = tau
         """
         self.ndimensions = d
         self.ncomponents = k
-        self.Mu = mu
-        self.Sigma = sigma
-        self.tau = tau
 
-        self.X = np.array((0))
-        self.N = 0
-        self.post = np.array((0))
-        self.weight = np.array((0))
+        if k is None:
+            k = 0
+        if d is None:
+            d = 0
+
+        if mu is None:
+            mu = np.ones((k,d))*np.nan
+        if sigma is None:
+            sigma = np.ones((k,d,d))*np.nan
+        if tau is None:
+            tau = np.ones((k,1))*np.nan
+        if k<2:
+            tau = np.ones((k,1))
+
+        assert mu.size == k*d, 'mu must be Kcomponents x Ddimensions matrix of means'
+        assert sigma.size == k*d*d, 'sigma must be Kcomponents x Ddimensions x Ddimensions matrix of covariance matrices'
+        assert tau.size == k, 'tau must be Kcomponents x 1 vector of mixture proportions'
+
+        self.setMu((np.array(mu)).reshape(k,d))
+        self.setSigma((np.array(sigma)).reshape(k,d,d))
+        self.setTau(np.array(tau).reshape(k,1))
+
         self.LnL = np.nan
         self.AIC = np.nan
         self.BIC = np.nan
@@ -567,9 +778,9 @@ class gmobj(object):
 
 
     def __str__(self):
-        d = self.ndimensions
-        k = self.ncomponents
-        tau = self.tau
+        d = self.getDdimensions()
+        k = self.getKcomponents()
+        tau = self.getTau()
         if d is None: d=0
         if k is None: k=0
         if tau is None: tau=np.array(0)
@@ -578,26 +789,49 @@ class gmobj(object):
         for iK in range(k):
             string2 = string2+'Component {0:d}: {1:.2f}%, ['.format(iK+1, float(tau[iK])*100)
             for iD in range(d-1):
-                string2 = string2+'{0:.3f}, '.format(self.Mu[iK,iD])
-            string2 = string2+'{0:.3f}]\n'.format(self.Mu[iK,self.ndimensions-1])
+                string2 = string2+'{0:.3f}, '.format(self.getMu()[iK,iD])
+            string2 = string2+'{0:.3f}]\n'.format(self.getMu()[iK,self.ndimensions-1])
         string2 = string2+'\n'
         string3 = 'Ln[L] = '+str(self.LnL)+'\n'
         string3 = 'Ln[L0] = '+str(self.LnL0)+'\n'+string3
-        string4 = 'AIC/AIC0 = {0:.3f}/{1:.3f} = {2:.3f}\n'.format(self.AIC,self.AIC0,self.AIC/self.AIC0)
-        string5 = 'BIC/BIC0 = {0:.3f}/{1:.3f} = {2:.3f}\n'.format(self.BIC,self.BIC0,self.BIC/self.BIC0)
+        (AIC,BIC) = self.information()
+        (AIC0,BIC0) = (self.nullModel()).information()
+
+
+        string4 = 'AIC/AIC0 = {0:.3f}/{1:.3f} : {2:.3f} ln relative likelihood of model\n'.format(AIC,AIC0,(AIC-AIC0)/2)
+        string5 = 'BIC/BIC0 = {0:.3f}/{1:.3f} : {2:.3f} ln relative likelihood of model\n'.format(BIC,BIC0,(BIC-BIC0)/2)
         return string1+string2+string3+string4+string5
+
+    def __repr__(self):
+        d = self.getDdimensions()
+        k = self.getKcomponents()
+        GMList = self.parseDistributions()
+        str1 = '<{0:d} component, {1:d}-dimensional gaussian mixture object>\n'.format(k,d)
+        for iK in range(k):
+            gm = GMList[iK]
+            str2 = 'Component {0:d}:\nTau = {1:.4f}\n'.format(iK+1,float(gm['Tau']))
+            str3 = 'mu = ['
+            for iD in range(d-1):
+                str3 = str3 + '{0:d}, '.format(gm['Mu'][iD])
+            str3 = str3 + '{0:d}]\n'.format(gm['Mu'][d])
+            str4 = 'sigma = '+str(gm['Sigma'])+'\n'
+
+
+            str1 = str1 + str2 + str3 + str4
+        return str1
+
 
     def __eq__(self,other):
         test = True
-        if self.ncomponents == other.ncomponents and self.ndimensions == other.ndimensions:
-            k = self.ncomponents
-            d = self.ndimensions
+        if self.getKcomponents() == other.getKcomponents() and self.getDdimensions() == other.getDdimensions():
+            k = self.getKcomponents()
+            d = self.getDdimensions()
             for iK in range(k):
-                test = test and self.tau[iK]==other.tau[iK]
+                test = test and self.getTau()[iK]==other.getTau()[iK]
                 for iD in range(d):
-                    test = test and self.Mu[iK,iD]==other.Mu[iK,iD]
+                    test = test and self.getMu()[iK,iD]==other.getMu()[iK,iD]
                     for iD2 in range(d):
-                        test = test and self.Sigma[iK,iD,iD2]==other.Mu[iK,iD,iD2]
+                        test = test and self.getSigma()[iK,iD,iD2]==other.getSigma()[iK,iD,iD2]
             return test
         else:
             test = False
@@ -606,8 +840,64 @@ class gmobj(object):
     def __lt__(self,other):
         return self.LnL < other.LnL
 
+    def __add__(self,other):
+        N1 = self.getN()
+        d1 = self.getDdimensions()
+        k1 = self.getKcomponents()
+        Mu1 = self.getMu()
+        Sigma1 = self.getSigma()
+        Tau1 = self.getTau()
 
-    def fit(self, X, k, maxiter = 500, tolfun = 10**-16, nrep = 1000):
+        N2 = other.getN()
+        d2 = other.getDdimensions()
+        k2 = other.getKcomponents()
+        Mu2 = other.getMu()
+        Sigma2 = other.getSigma()
+        Tau2 = other.getTau()
+
+        assert d1 == d2, "Gaussian mixture objects must have equal dimensionality to be added."
+
+        try:
+            X1 = self.X
+        except:
+            X1 = np.ones((N1,d1))*np.nan
+        try:
+            X2 = other.X
+        except:
+            X2 = np.ones((N2,d2))*np.nan
+
+        N = N1+N2
+        d = (d1+d2)/2
+        k = k1+k2
+
+        if N>0:
+            X = np.concatenate((X1,X2),axis=0)
+        else:
+            X = np.ones((N,d))*np.nan
+
+        Mu = np.ones((k,d))*np.nan
+        Sigma = np.ones((k,d,d))*np.nan
+        Tau = np.ones((k,1))*np.nan
+        for iK1 in range(k1):
+            Mu[iK1,:] = Mu1[iK1,:]
+            Sigma[iK1,:,:] = Sigma1[iK1,:,:]
+            Tau[iK1] = Tau1[iK1]
+        for iK2 in range(k2):
+            Mu[iK2,:] = Mu2[iK2,:]
+            Sigma[iK2,:,:] = Sigma2[iK2,:,:]
+            Tau[iK2] = Tau2[iK2]
+
+        I = np.argsort(Mu[:,0])
+        Mu = Mu[I,:]
+        Sigma = Sigma[I,:,:]
+        Tau = Tau[I]
+
+        aug = GMobj(d=d,k=k,mu=Mu,sigma=Sigma,tau=Tau)
+        aug.setData(X)
+        return aug
+
+
+    def fit(self, X, k, miniter=10, maxiter = 100, tolfun = 10**-32, nrep = 50):
         """
         Fits a Gaussian mixture model to the data in X using k components.
 
@@ -615,9 +905,9 @@ class gmobj(object):
         :param k: Number of components in Gaussian mixture
 
         Optional:
-        :param maxiter=500: maximum number of iterations before non-convergence
+        :param maxiter=1000: maximum number of iterations before non-convergence
         :param tolfun=0.001: smallest change in log-likelihood before convergence
-        :param nrep=1000: number of random start points to use
+        :param nrep=500: number of random start points to use
         :return: gmobj with attributes
 
         """
@@ -628,40 +918,57 @@ class gmobj(object):
             d = 1
         X = X.reshape(n,d)
 
-        self = gmobj(d=d,k=k)
+        self = GMobj(d=d,k=k)
         self.setData(X)
-        self.ndimensions = d
-        self.ncomponents = k
 
         print('Evaluating null model...')
         self.setNullModel()
 
         boot = list()
         LnLs = list()
-        print('\n')
         iterHist = np.ones((maxiter,nrep))*np.nan
         attempt = 1
         print('Evaluating Gaussian Mixture Distribution object...')
+        start = time.clock()
+        remTime = False
         for rep in range(nrep):
             boot0 = seed(self)
             lastLnL = -np.inf
             delta = -np.inf
             iter = 0
             while True:
+                if iter > maxiter: break
+                if iter > miniter and delta < tolfun: break
+
+                sys.stdout.flush()
+                iter = iter + 1
+                boot0 = EM(boot0)
+                delta = np.abs(lastLnL - boot0.LnL)
+                iterHist[iter-2,rep] = boot0.LnL
+                lastLnL = boot0.LnL
+
+                if attempt==1:
+                    end = time.clock()
+                    print('One iteration took',end-start,'sec.')
+                    print('Minimum time:     ',((end-start)*miniter*nrep)/60,'minutes.')
+                    print('Maximum time:     ',((end-start)*maxiter*nrep)/60,'minutes.')
                 if (attempt % 100) == 0:
                     print('.', end = '\n')
                 else:
                     print('.', end = '')
-                sys.stdout.flush()
-                iter = iter + 1
-                boot0 = EM(boot0)
-                delta = lastLnL - boot0.LnL
-                iterHist[iter-2,rep] = boot0.LnL
-                lastLnL = boot0.LnL
-                if iter > maxiter: break
+                if (attempt % 100) == 0 and remTime==False:
+                    end = time.clock()
+                    # how many replications are left?
+                    repLeft=(nrep-rep)
+                    if repLeft<nrep:
+                        # how many iterations are done per rep?
+                        it = np.logical_not(np.isnan(iterHist[:,:rep]))
+                        iPerRep = np.nanmean(np.nansum(it,axis=0))
+                        print('Est. remaining:    ',(((end-start)/attempt)*(iPerRep*(repLeft-1)+(iPerRep-iter)))/60,'minutes.')
+                        remTime=True
+
                 attempt += 1
-                #if delta < tolfun: break
-            print('\n')
+
             sys.stdout.flush()
             boot.append(boot0)
             LnLs.append(boot0.LnL)
@@ -670,16 +977,14 @@ class gmobj(object):
         I = np.argmax(LnLs)
         fitgm = boot[I]
 
-        self.X = fitgm.X
-        self.ndimensions = fitgm.ndimensions
-        self.ncomponents = fitgm.ncomponents
-        self.N = fitgm.N
-        self.post = fitgm.post
-        self.weight = fitgm.weight
-        self.Mu = fitgm.Mu
-        self.Sigma = fitgm.Sigma
-        self.tau = fitgm.tau
-        self.LnL = fitgm.LnL
+        del self
+
+        self = GMobj(d=fitgm.getDdimensions(),k=fitgm.getKcomponents(),mu=fitgm.getMu(),sigma=fitgm.getSigma(),tau=fitgm.getTau())
+
+        self.setData(X)
+
+        self.setLnL()
+
         self.IterHist = iterHist[:,I]
 
         print('Evaluating information criteria of the fit...')
@@ -688,3 +993,32 @@ class gmobj(object):
         print(self)
         return self
 
+
+if __name__ == '__main__':
+    print('Self test...')
+    x1 = np.concatenate((np.random.randn(500,1),np.random.randn(500,1)+5),axis=0)
+    x2 = np.concatenate((np.random.randn(500,1),np.random.randn(500,1)+10),axis=0)
+    X = np.concatenate((x1,x2),axis=1)
+    print('1000 x 2 matrix of X values produced:')
+    print('X[:,1] is 50% mu=0')
+    print('          50% mu=5')
+    print('X[:,2] is 50% mu=0')
+    print('          50% mu=10')
+    print('Overall means: ')
+    print(np.nanmean(X,axis=0))
+    print('\n\n')
+
+    print('Underfitting a null, 1-component model.')
+    null = GMobj()
+    null = null.fit(X,1,nrep=1,maxiter=10)
+
+    print('Fitting a 2-component mixture model.')
+    mixture = GMobj()
+    mixture = mixture.fit(X,2)
+
+    print('Overfitting a 3-component mixture model.')
+    over = GMobj()
+    over = over.fit(X,3)
+
+    mixture.plot2d()
+    plt.show()

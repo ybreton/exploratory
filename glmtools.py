@@ -63,7 +63,7 @@ def pca(mat,pairwise=False):
 
 def evalpca(X, PCA, PCs=None, PCprop=None):
     """
-    Evaluate the principal components as returned by pca2.
+    Evaluate the principal components as returned by pca.
 
     :param X:  n x d array of input predictors
     :param PCA: 1 x nEigs list of (Normalized Eigenvalue, [1xd Normalized Eigenvector]) tuples
@@ -92,7 +92,7 @@ def evalpca(X, PCA, PCs=None, PCprop=None):
             PCs = min(pcgt)
 
     eig = [PCA[ir][1] for ir in range(len(PCA))]
-    print('Producing scores for',str(PCs+1),'features')
+    print('Producing scores for',str(PCs),'features')
 
     n = X.shape[0]
     D = X-np.nanmean(X,axis=0)
@@ -123,13 +123,13 @@ def eigenplot(PCA):
     ph1 = plt.plot(x,y,'ko-')
     ah1.set_xlabel('Principal Component')
     ah1.set_ylabel('Normalized eigenvalue')
-    ah1.set_ylim(0,y[0])
+    ah1.set_ylim(-0.05,y[0])
     ah1.set_xlim(0,len(PCA)+1)
     ah2 = fh.add_subplot(2,1,2)
     ph2 = plt.plot(x,cy,'ko-')
     ah2.set_xlabel('Principal Component')
     ah2.set_ylabel('Cumulative variance accounted for')
-    ah2.set_ylim(0,1)
+    ah2.set_ylim(-0.05,1.05)
     ah2.set_xlim(0,len(PCA)+1)
 
     ah = (ah1,ah2)
@@ -147,7 +147,7 @@ def biplot(X, PCA):
     """
 
     X = np.array(X)
-    X0 = evalpca2(X, PCA)
+    X0 = evalpca(X, PCA)
     try:
         (n,d) = X0.shape
     except:
@@ -166,8 +166,10 @@ def biplot(X, PCA):
 
     if k>2:
         for iC1 in range(k-1):
+            r1 = iC1+1
             for iC2 in range(iC1+1,k):
-                p = (iC2*k)+(iC1+1)
+                c2 = iC2+1
+                p = (k-1)*(r1-1)+c2-1
                 f1 = X0[:,iC1]
                 f2 = X0[:,iC2]
 
@@ -176,18 +178,22 @@ def biplot(X, PCA):
                 l2 = eigenvectors[iC2]
 
                 print('Feature',str(iC1),'vs','Feature',str(iC2))
-                ah=fh.add_subplot(k+1,k+1,p)
-                ph1=plt.plot(f1,f2,'ko',markerfacecolor='k',markersize=5)
-                ph2=plt.plot(l1,l2,'rs',markerfacecolor='r',markersize=12)
+                ah=fh.add_subplot(k-1,k-1,p)
+                ph1=plt.plot(f1,f2,'k.',markersize=2)
+                ph2=plt.plot(l1,l2,'rs',markerfacecolor='r',markeredgecolor='r',markersize=3)
                 for iN in range(d):
                     plt.text(l1[iN],l2[iN],str(iN))
-                xh=plt.xlabel('F'+str(iC1))
-                xh.set_fontsize(10)
-                yh=plt.ylabel('F'+str(iC2))
-                yh.set_fontsize(10)
-                fstr = '{0:.3f}+{1:.3f}'.format(eigenvalues[iC1],eigenvalues[iC2])
+                for tick in ah.xaxis.get_major_ticks():
+                    tick.label.set_fontsize(8)
+                for tick in ah.yaxis.get_major_ticks():
+                    tick.label.set_fontsize(8)
+                xh=plt.xlabel('F'+str(r1))
+                xh.set_fontsize(8)
+                yh=plt.ylabel('F'+str(c2))
+                yh.set_fontsize(8)
+                fstr = '{0:.3f}'.format(eigenvalues[iC1]+eigenvalues[iC2])
                 th=plt.title(fstr)
-                th.set_fontsize(10)
+                th.set_fontsize(8)
                 ph = (ph1,ph2)
                 phList.append(ph)
                 ahList.append(ah)
@@ -202,19 +208,30 @@ def biplot(X, PCA):
 
         print('Feature',str(iC1),'vs','Feature',str(iC2))
         ah=fh.add_subplot(1,1,1)
-        ph1=plt.plot(f1,f2,'ko',markerfacecolor='k',markersize=5)
-        ph2=plt.plot(l1,l2,'rs',markerfacecolor='r',markersize=12)
-        th=plt.text(l1,l2,np.arange(d))
-        plt.xlabel('F'+str(iC1))
-        plt.ylabel('F'+str(iC2))
-        plt.title(str(PCweight[iC1])+'+ '+str(PCweight[iC2]))
+        ph1=plt.plot(f1,f2,'k.',markerfacecolor='k',markersize=2)
+        ph2=plt.plot(l1,l2,'rs',markerfacecolor='r',markeredgecolor='r',markersize=3)
+        for iN in range(d):
+            plt.text(l1[iN],l2[iN],str(iN))
+        for tick in ah.xaxis.get_major_ticks():
+            tick.label.set_fontsize(8)
+        for tick in ah.yaxis.get_major_ticks():
+            tick.label.set_fontsize(8)
+        plt.xlabel('F'+str(iC1+1))
+        plt.ylabel('F'+str(iC2+1))
+        plt.title(str(PCweight[iC1]+PCweight[iC2]))
         ph = (ph1,ph2)
         phList.append(ph)
         ahList.append(ah)
     else:
         ah=fh.add_subplot(1,1,1)
-        ph1=plt.plot(np.ones(X0.shape),X0,'ko',markerfacecolor='k',markersize=5)
-        ph2=plt.plot(np.ones(X0.shape),PClist,'rs',markerfacecolor='r',markersize=12)
+        ph1=plt.plot(np.ones(X0.shape),X0,'k.',markerfacecolor='k',markersize=2)
+        ph2=plt.plot(np.ones(X0.shape),PClist,'rs',markerfacecolor='r',markeredgecolor='r',markersize=3)
+        for iN in range(d):
+            plt.text(l1[iN],l2[iN],str(iN))
+        for tick in ah.xaxis.get_major_ticks():
+            tick.label.set_fontsize(8)
+        for tick in ah.yaxis.get_major_ticks():
+            tick.label.set_fontsize(8)
         ph = (ph1,ph2)
         phList = [ph]
         ahList = [ah]
@@ -332,7 +349,7 @@ def crosscorrs(mat,plotFlag=False):
         return R
 
 
-def histograms(mat):
+def histograms(mat,y=None):
     """
     Produces histograms of the data in each column of mat.
 
@@ -345,21 +362,45 @@ def histograms(mat):
         n = len(mat)
         d = 1
 
-    fh = list()
-    for iC1 in range(d):
-        x = mat[:,iC1]
-        idx = np.logical_or(np.isnan(x),np.isinf(x))
-        idValid = np.logical_not(idx)
-        x = x[idValid]
-        n = len(x)
-        nbin = np.ceil(math.sqrt(n))
+    if y is None:
+        fh = list()
+        for iC1 in range(d):
+            x = mat[:,iC1]
+            idx = np.logical_or(np.isnan(x),np.isinf(x))
+            idValid = np.logical_not(idx)
+            x = x[idValid]
+            n = len(x)
+            nbin = np.ceil(math.sqrt(n))
 
-        fh0 = plt.figure()
-        fh0.suptitle('Distribution, column'+str(iC1+1))
-        ah = fh0.add_subplot()
-        ph = ah.hist(x,nbin)
-        ah.set_xlim(np.nanmin(x),np.nanmax(x))
-        fh.append(fh0)
+            fh0 = plt.figure()
+            fh0.suptitle('Distribution, column'+str(iC1+1))
+            ah = fh0.add_subplot()
+            ph = plt.hist(x,nbin)
+            ah.set_xlim(np.nanmin(x),np.nanmax(x))
+            ah.set_ylim(0,np.nanmax(ph[0])+1)
+            fh.append(fh0)
+    else:
+        assert len(y) == n, 'y must have as many observations as x.'
+        fh = list()
+        uniqueY = np.unique(y[np.logical_not(np.isnan(y))])
+        for iC1 in range(d):
+            x = mat[:,iC1]
+            idx = np.logical_or(np.isnan(x),np.isinf(x))
+            idValid = np.logical_not(idx)
+            x = x[idValid]
+            n = len(x)
+            nbin = np.ceil(math.sqrt(n))
+
+            fh0 = plt.figure()
+            fh0.suptitle('Distribution, column'+str(iC1+1))
+            for iY1 in range(len(uniqueY)):
+                ah = fh0.add_subplot(len(uniqueY),1,iY1+1)
+                plt.title('y='+str(uniqueY[iY1]))
+                id = y[idValid]==uniqueY[iY1]
+                ph = plt.hist(x[id],nbin)
+                ah.set_xlim(np.nanmin(x),np.nanmax(x))
+                ah.set_ylim(0,np.nanmax(ph[0])+1)
+            fh.append(fh0)
     return fh
 
 
